@@ -2,6 +2,7 @@ from dataclasses import dataclass
 
 import numpy as np
 from docplex.mp.model import Model
+from docplex.mp.relax_linear import LinearRelaxer
 
 
 @dataclass(frozen=True)
@@ -49,20 +50,55 @@ class IPInstance:
         self.tests = []  # to hold variables
 
     def solve(self):
+
+        PRINT = True
+        RELAX = False
+
         for i in range(self.numTests):
             self.tests.append(self.model.binary_var(f"T{i}"))
 
         for i in range(self.numDiseases):
             for j in range(i + 1, self.numDiseases):
-                equals = [self.tests[k] * self.A[k][i] == self.tests[k] * self.A[k][j] for k in range(self.numTests)]
-                self.model.add_constraint(self.model.logical_not(self.model.logical_and(*equals)))
+                first_disease = [self.tests[k] * self.A[k][i] for k in range(self.numTests)]
+                second_disease = [self.tests[k] * self.A[k][j] for k in range(self.numTests)]
+
+                xor_vars = []
+                or_var = self.model.binary_var()
+
+                for k in range(self.numTests):
+                    f = first_disease[k]
+                    s = second_disease[k]
+
+                    if self.A[k][i] != 0 and self.A[k][j] != 0:
+                        xor_var = self.model.binary_var()
+                        xor_vars.append(xor_var)
+                        self.model.add_constraint(xor_var <= f + s)
+                        self.model.add_constraint(xor_var >= f - s)
+                        self.model.add_constraint(xor_var >= -f + s)
+                        self.model.add_constraint(xor_var <= 2 - f - s)
+                        self.model.add_constraint(or_var >= xor_var)
+                    elif self.A[k][i] == 0 and self.A[k][j] != 0:
+                        xor_var = s
+                        xor_vars.append(xor_var)
+                        self.model.add_constraint(or_var >= xor_var)
+                    elif self.A[k][i] != 0 and self.A[k][j] == 0:
+                        xor_var = f
+                        xor_vars.append(xor_var)
+                        self.model.add_constraint(or_var >= xor_var)
+
+                self.model.add_constraint(or_var <= self.model.sum(xor_vars))
+                self.model.add_constraint(or_var >= 1)
 
         cost = self.model.sum([self.costOfTest[i] * self.tests[i] for i in range(self.numTests)])
         self.model.minimize(cost)
 
-        self.model.solve()
+        model = LinearRelaxer.make_relaxed_model(self.model) if RELAX else self.model
+        model.solve()
 
-        return self.model.objective_value
+        if PRINT:
+            model.print_information()
+
+        return model.objective_value
 
     def __str__(self):
         out = ""
