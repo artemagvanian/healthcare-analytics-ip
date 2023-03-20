@@ -48,7 +48,7 @@ class IPInstance:
         self.A = A
         self.model = Model()  # CPLEX solver
         self.tests = []  # to hold variables
-        self.build_constraints(True, True)
+        self.build_constraints(False, True)
 
     def build_constraints(self, relax_model: bool, print_model: bool):
         for i in range(self.numTests):
@@ -56,38 +56,25 @@ class IPInstance:
 
         for i in range(self.numDiseases):
             for j in range(i + 1, self.numDiseases):
-                # select a pair of two different diseases
-                xor_vars = []
-                or_var = self.model.binary_var()
+                different_bits = []
+
+                # or function taken from the formulettes
+                # or_var = self.model.binary_var()
 
                 # xor two binary strings bit by bit
                 for k in range(self.numTests):
-                    first_disease = self.tests[k] * self.A[k][i]
-                    second_disease = self.tests[k] * self.A[k][j]
-
-                    # if two bits are non-zero, need to xor them properly
-                    if self.A[k][i] != 0 and self.A[k][j] != 0:
-                        xor_var = self.model.binary_var()
-                        xor_vars.append(xor_var)
-                        # xor taken from the formulettes
-                        self.model.add_constraint(xor_var <= first_disease + second_disease)
-                        self.model.add_constraint(xor_var >= first_disease - second_disease)
-                        self.model.add_constraint(xor_var >= -first_disease + second_disease)
-                        self.model.add_constraint(xor_var <= 2 - first_disease - second_disease)
-                        self.model.add_constraint(or_var >= xor_var)
-                    # if the first bit is 0, return the second bit
-                    elif self.A[k][i] == 0 and self.A[k][j] != 0:
-                        xor_vars.append(second_disease)
-                        self.model.add_constraint(or_var >= second_disease)
-                    # if the second bit is 0, return the first bit
-                    elif self.A[k][i] != 0 and self.A[k][j] == 0:
-                        xor_vars.append(first_disease)
-                        self.model.add_constraint(or_var >= first_disease)
-                    # do nothing if two bits are set to 0
+                    # if the bits could be set to different values
+                    if self.A[k][i] == 0 and self.A[k][j] != 0 or self.A[k][i] != 0 and self.A[k][j] == 0:
+                        different_bits.append(self.tests[k])
+                        # or function taken from the formulettes
+                        # self.model.add_constraint(or_var >= self.tests[k])
 
                 # or function taken from the formulettes
-                self.model.add_constraint(or_var <= self.model.sum(xor_vars))
-                self.model.add_constraint(or_var >= 1)
+                # self.model.add_constraint(or_var <= self.model.sum(xor_vars))
+                # self.model.add_constraint(or_var >= 1)
+
+                # simplified cardinality constraint
+                self.model.add_constraint(self.model.sum(different_bits) >= 1)
 
         cost = self.model.sum([self.costOfTest[i] * self.tests[i] for i in range(self.numTests)])
         self.model.minimize(cost)
