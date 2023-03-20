@@ -48,57 +48,58 @@ class IPInstance:
         self.A = A
         self.model = Model()  # CPLEX solver
         self.tests = []  # to hold variables
+        self.build_constraints(True, True)
 
-    def solve(self):
-
-        PRINT = True
-        RELAX = False
-
+    def build_constraints(self, relax_model: bool, print_model: bool):
         for i in range(self.numTests):
             self.tests.append(self.model.binary_var(f"T{i}"))
 
         for i in range(self.numDiseases):
             for j in range(i + 1, self.numDiseases):
-                first_disease = [self.tests[k] * self.A[k][i] for k in range(self.numTests)]
-                second_disease = [self.tests[k] * self.A[k][j] for k in range(self.numTests)]
-
+                # select a pair of two different diseases
                 xor_vars = []
                 or_var = self.model.binary_var()
 
+                # xor two binary strings bit by bit
                 for k in range(self.numTests):
-                    f = first_disease[k]
-                    s = second_disease[k]
+                    first_disease = self.tests[k] * self.A[k][i]
+                    second_disease = self.tests[k] * self.A[k][j]
 
+                    # if two bits are non-zero, need to xor them properly
                     if self.A[k][i] != 0 and self.A[k][j] != 0:
                         xor_var = self.model.binary_var()
                         xor_vars.append(xor_var)
-                        self.model.add_constraint(xor_var <= f + s)
-                        self.model.add_constraint(xor_var >= f - s)
-                        self.model.add_constraint(xor_var >= -f + s)
-                        self.model.add_constraint(xor_var <= 2 - f - s)
+                        # xor taken from the formulettes
+                        self.model.add_constraint(xor_var <= first_disease + second_disease)
+                        self.model.add_constraint(xor_var >= first_disease - second_disease)
+                        self.model.add_constraint(xor_var >= -first_disease + second_disease)
+                        self.model.add_constraint(xor_var <= 2 - first_disease - second_disease)
                         self.model.add_constraint(or_var >= xor_var)
+                    # if the first bit is 0, return the second bit
                     elif self.A[k][i] == 0 and self.A[k][j] != 0:
-                        xor_var = s
-                        xor_vars.append(xor_var)
-                        self.model.add_constraint(or_var >= xor_var)
+                        xor_vars.append(second_disease)
+                        self.model.add_constraint(or_var >= second_disease)
+                    # if the second bit is 0, return the first bit
                     elif self.A[k][i] != 0 and self.A[k][j] == 0:
-                        xor_var = f
-                        xor_vars.append(xor_var)
-                        self.model.add_constraint(or_var >= xor_var)
+                        xor_vars.append(first_disease)
+                        self.model.add_constraint(or_var >= first_disease)
+                    # do nothing if two bits are set to 0
 
+                # or function taken from the formulettes
                 self.model.add_constraint(or_var <= self.model.sum(xor_vars))
                 self.model.add_constraint(or_var >= 1)
 
         cost = self.model.sum([self.costOfTest[i] * self.tests[i] for i in range(self.numTests)])
         self.model.minimize(cost)
 
-        model = LinearRelaxer.make_relaxed_model(self.model) if RELAX else self.model
-        model.solve()
+        self.model = LinearRelaxer.make_relaxed_model(self.model) if relax_model else self.model
 
-        if PRINT:
-            model.print_information()
+        if print_model:
+            self.model.print_information()
 
-        return model.objective_value
+    def solve(self):
+        self.model.solve()
+        return self.model.objective_value
 
     def __str__(self):
         out = ""
